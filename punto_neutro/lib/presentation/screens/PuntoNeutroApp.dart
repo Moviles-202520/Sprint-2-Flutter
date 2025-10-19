@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:punto_neutro/presentation/screens/LoginScreen.dart';
 
-// Imports de tu capa de datos (ya creados antes)
+// Imports de tu capa de datos
 import '../../data/repositories/auth_repository.dart';
-import '../../data/repositories/fake_auth_repository.dart';
+import '../../data/repositories/supabase_auth_repository.dart';
 import '../../data/models/user_login.dart';
 
 // ================================================
@@ -75,7 +75,7 @@ class PuntoNeutroApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => AuthViewModel(FakeAuthRepository()),
+      create: (_) => AuthViewModel(SupabaseAuthRepository()),
       child: MaterialApp(
         title: 'Punto Neutro',
         debugShowCheckedModeBanner: false,

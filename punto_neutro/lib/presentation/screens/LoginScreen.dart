@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'PuntoNeutroApp.dart' show AuthViewModel;
+import 'package:punto_neutro/presentation/screens/news_feed_screen.dart';
+import 'package:punto_neutro/presentation/screens/PuntoNeutroApp.dart' show AuthViewModel;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -25,7 +26,11 @@ class _LoginScreenState extends State<LoginScreen> {
     // Si ya está logueado, navegar al Home
     if (vm.loggedIn) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) Navigator.of(context).pushReplacementNamed('/home');
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const NewsFeedScreen()),
+          );
+        }
       });
     }
 

@@ -5,23 +5,51 @@ import 'package:punto_neutro/domain/models/news_item.dart';
 import 'package:punto_neutro/view_models/news_feed_viewmodel.dart';
 import 'package:punto_neutro/data/repositories/supabase_news_repository.dart';
 import 'news_detail_screen.dart';
+import '../widgets/weather_widget.dart';
+import '../viewmodels/weather_viewmodel.dart';
+import '../../data/services/weather_service.dart';
+import '../../data/repositories/weather_repository.dart';
+import '../../core/location_service.dart';
 
 class NewsFeedScreen extends StatelessWidget {
   const NewsFeedScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => NewsFeedViewModel(SupabaseNewsRepository()),
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        appBar: _buildAppBar(),
-        body: _buildBody(),
-      ),
+    // Crear WeatherService (pon tu API key aquí)
+  final weatherService = WeatherService(apiKey: '44cbc6a126384edfba3161815251910');
+    final weatherRepo = WeatherRepository(weatherService);
+
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => NewsFeedViewModel(SupabaseNewsRepository())),
+        ChangeNotifierProvider(create: (_) => WeatherViewModel(weatherRepo)),
+      ],
+      child: Builder(builder: (context) {
+        // Cargar clima al abrir (usamos postFrameCallback para no notificar durante el build)
+        final weatherVm = context.read<WeatherViewModel>();
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          if (!weatherVm.isLoading && weatherVm.data == null) {
+            try {
+              final pos = await LocationService.instance.getCurrentPosition();
+              final q = '${pos.latitude},${pos.longitude}';
+              weatherVm.loadWeather(q);
+            } catch (e) {
+              // fallback
+              weatherVm.loadWeather('Bogota,CO');
+            }
+          }
+        });
+
+        return Scaffold(
+          backgroundColor: Colors.black,
+          appBar: _buildAppBar(context),
+          body: _buildBody(),
+        );
+      }),
     );
   }
-
-  PreferredSizeWidget _buildAppBar() {
+  PreferredSizeWidget _buildAppBar(BuildContext context) {
     return AppBar(
       backgroundColor: Colors.black,
       elevation: 0,
@@ -42,6 +70,10 @@ class NewsFeedScreen extends StatelessWidget {
         IconButton(
           icon: const Icon(Icons.more_vert, color: Colors.white),
           onPressed: () {},
+        ),
+        Padding(
+          padding: const EdgeInsets.only(right: 8.0),
+          child: Align(alignment: Alignment.centerRight, child: WeatherWidget(city: 'Bogota,CO')),
         ),
       ],
     );

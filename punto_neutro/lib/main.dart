@@ -3,6 +3,7 @@ import 'package:punto_neutro/data/repositories/supabase_news_repository.dart';
 import 'package:punto_neutro/presentation/screens/news_detail_screen.dart';
 import 'package:punto_neutro/data/repositories/news_repository_impl.dart';
 import 'package:punto_neutro/presentation/screens/news_feed_screen.dart';
+import 'package:punto_neutro/presentation/screens/PuntoNeutroApp.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 void main() async {
@@ -13,29 +14,13 @@ void main() async {
   //await Hive.openBox<dynamic>('ratings_cache');
   // ✅ INICIALIZAR SUPABASE
   await Supabase.initialize(
-    url: 'https://oikdnxujjmkbewdhpyor.supabase.co', // REEMPLAZA CON TU URL
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9pa2RueHVqam1rYmV3ZGhweW9yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk0MDU0MjksImV4cCI6MjA3NDk4MTQyOX0.htw3cdc-wFcBjKKPP4aEC9K9xBEnvPULMToP_PIuaLI', // REEMPLAZA CON TU ANON KEY
+    url: 'https://oikdnxujjmkbewdhpyor.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9pa2RueHVqam1rYmV3ZGhweW9yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk0MDU0MjksImV4cCI6MjA3NDk4MTQyOX0.htw3cdc-wFcBjKKPP4aEC9K9xBEnvPULMToP_PIuaLI',
   );
   
-  runApp(const MyApp());
+  runApp(const PuntoNeutroApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Punto Neutro',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-      ),
-      home: const NewsFeedScreen()
-    );
-  }
-}
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
