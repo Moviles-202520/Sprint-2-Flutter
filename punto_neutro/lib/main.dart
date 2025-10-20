@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
-import 'package:punto_neutro/data/repositories/supabase_news_repository.dart';
-import 'package:punto_neutro/presentation/screens/news_detail_screen.dart';
-import 'package:punto_neutro/data/repositories/news_repository_impl.dart';
-import 'package:punto_neutro/presentation/screens/news_feed_screen.dart';
+// imports de repositorios/screens movidos a sus respectivos widgets
 import 'package:punto_neutro/presentation/screens/PuntoNeutroApp.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  //await Hive.initFlutter();
-  //await Hive.openBox<dynamic>('news_cache');
-  //await Hive.openBox<dynamic>('comments_cache');
-  //await Hive.openBox<dynamic>('ratings_cache');
+  // Inicializar Hive y abrir cajas necesarias para cache offline
+  try {
+    await Hive.initFlutter();
+    await Hive.openBox<dynamic>('news_cache');
+    await Hive.openBox<dynamic>('comments_cache');
+    await Hive.openBox<dynamic>('ratings_cache');
+    // Las "pending" se almacenan como keys dentro de las cajas de comments/ratings
+    print('✅ Hive inicializado y cajas abiertas');
+  } catch (e, st) {
+    print('⚠️ Error inicializando Hive: $e');
+    print(st);
+  }
   // ✅ INICIALIZAR SUPABASE
   await Supabase.initialize(
     url: 'https://oikdnxujjmkbewdhpyor.supabase.co',

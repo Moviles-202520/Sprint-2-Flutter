@@ -1,18 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:punto_neutro/data/repositories/hybrid_news_repository.dart';
+import 'package:punto_neutro/presentation/viewmodels/auth_view_model.dart';
+import 'package:punto_neutro/core/analytics_service.dart';
+// repository imports are specific to providers
 import 'package:punto_neutro/domain/models/news_item.dart';
 import 'package:punto_neutro/view_models/news_feed_viewmodel.dart';
-import 'package:punto_neutro/data/repositories/supabase_news_repository.dart';
+import 'package:punto_neutro/data/repositories/local_news_repository.dart';
 import 'news_detail_screen.dart';
+import '../../data/repositories/categories_repository.dart';
 import '../widgets/weather_widget.dart';
 import '../viewmodels/weather_viewmodel.dart';
 import '../../data/services/weather_service.dart';
 import '../../data/repositories/weather_repository.dart';
 import '../../core/location_service.dart';
 
-class NewsFeedScreen extends StatelessWidget {
-  const NewsFeedScreen({super.key});
+class NewsFeedScreen extends StatefulWidget {
+  NewsFeedScreen({Key? key});
+
+  @override
+  State<NewsFeedScreen> createState() => _NewsFeedScreenState();
+}
+
+class _NewsFeedScreenState extends State<NewsFeedScreen> {
+  bool _sessionStarted = false;
+
+  @override
+  void dispose() {
+    // End session when leaving feed
+    try {
+      final vm = context.read<AuthViewModel>();
+      if (vm.userProfileId != null) {
+        AnalyticsService().endSession();
+      }
+    } catch (_) {}
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,7 +44,7 @@ class NewsFeedScreen extends StatelessWidget {
 
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => NewsFeedViewModel(SupabaseNewsRepository())),
+  ChangeNotifierProvider(create: (_) => NewsFeedViewModel(LocalNewsRepository())),
         ChangeNotifierProvider(create: (_) => WeatherViewModel(weatherRepo)),
       ],
       child: Builder(builder: (context) {
@@ -41,6 +63,13 @@ class NewsFeedScreen extends StatelessWidget {
           }
         });
 
+        // Start session once when entering feed
+        final authVm = context.read<AuthViewModel>();
+        if (!_sessionStarted && authVm.userProfileId != null) {
+          _sessionStarted = true;
+          AnalyticsService().startSession(authVm.userProfileId!);
+        }
+
         return Scaffold(
           backgroundColor: Colors.black,
           appBar: _buildAppBar(context),
@@ -50,9 +79,70 @@ class NewsFeedScreen extends StatelessWidget {
     );
   }
   PreferredSizeWidget _buildAppBar(BuildContext context) {
+    final categories = CategoriesRepository.categories;
+    final vm = Provider.of<NewsFeedViewModel>(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    
     return AppBar(
       backgroundColor: Colors.black,
       elevation: 0,
+      leadingWidth: screenWidth * 0.35,
+      leading: Padding(
+        padding: const EdgeInsets.only(left: 8.0),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.grey[900],
+            borderRadius: BorderRadius.circular(20),
+          ),
+          alignment: Alignment.center,
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              isDense: true,
+              dropdownColor: Colors.grey[900],
+              value: vm.selectedCategoryId ?? 'all',
+              icon: const Icon(Icons.arrow_drop_down, color: Colors.white, size: 20),
+              style: TextStyle(
+                color: Colors.white, 
+                fontSize: screenWidth > 600 ? 15 : 13, 
+                fontWeight: FontWeight.w600
+              ),
+              selectedItemBuilder: (context) {
+                return [
+                  const Center(child: Text('All Categories', style: TextStyle(color: Colors.white), overflow: TextOverflow.ellipsis)),
+                  ...categories.map((cat) => Center(child: Text(cat.name, style: const TextStyle(color: Colors.white), overflow: TextOverflow.ellipsis))),
+                ];
+              },
+              items: [
+                const DropdownMenuItem(
+                  value: 'all',
+                  child: Text('All Categories', style: TextStyle(color: Colors.white, fontSize: 16), overflow: TextOverflow.ellipsis),
+                ),
+                ...categories.map((cat) => DropdownMenuItem(
+                  value: cat.category_id,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.label, color: Colors.white, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(cat.name, style: const TextStyle(color: Colors.white, fontSize: 16), overflow: TextOverflow.ellipsis)),
+                    ],
+                  ),
+                )),
+              ],
+              onChanged: (value) {
+                vm.setCategoryFilter(value == 'all' ? null : value);
+                if (value != null && value != 'all') {
+                  final id = int.tryParse(value);
+                  if (id != null) {
+                    AnalyticsService().trackFilterApplied(id);
+                  }
+                }
+              },
+            ),
+          ),
+        ),
+      ),
       title: const Text(
         'For You',
         style: TextStyle(
@@ -62,10 +152,6 @@ class NewsFeedScreen extends StatelessWidget {
         ),
       ),
       centerTitle: true,
-      leading: IconButton(
-        icon: const Icon(Icons.search, color: Colors.white),
-        onPressed: () {},
-      ),
       actions: [
         IconButton(
           icon: const Icon(Icons.more_vert, color: Colors.white),
@@ -102,6 +188,8 @@ class NewsFeedScreen extends StatelessWidget {
           scrollDirection: Axis.vertical,
           onPageChanged: (index) {
             viewModel.setCurrentIndex(index);
+            // track article viewed
+            AnalyticsService().incrementArticlesViewed();
           },
           itemBuilder: (context, index) {
             final news = viewModel.newsItems[index];
@@ -131,7 +219,7 @@ class _NewsItemCard extends StatelessWidget {
           MaterialPageRoute(
             builder: (context) => NewsDetailScreen(
               news_item_id: news.news_item_id,
-              repository: SupabaseNewsRepository(),
+              repository: LocalNewsRepository(),
             ),
           ),
         );

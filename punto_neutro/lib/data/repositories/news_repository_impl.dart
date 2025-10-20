@@ -4,6 +4,11 @@ import '../../domain/models/rating_item.dart';
 import '../../domain/models/comment.dart';
 
 class NewsRepositoryImpl implements NewsRepository {
+  @override
+  Future<List<NewsItem>> getNewsList() async {
+    await Future.delayed(const Duration(milliseconds: 300));
+    return _staticNewsItems;
+  }
   final List<NewsItem> _staticNewsItems = [
     NewsItem(
       news_item_id: '1',

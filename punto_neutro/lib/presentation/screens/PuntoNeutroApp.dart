@@ -1,69 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:punto_neutro/presentation/screens/LoginScreen.dart';
+import 'package:punto_neutro/presentation/viewmodels/auth_view_model.dart';
 
 // Imports de tu capa de datos
-import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/supabase_auth_repository.dart';
-import '../../data/models/user_login.dart';
 
-// ================================================
-// ViewModel TEMPORAL (colocado aquí para que compiles ya).
-// Luego muévelo a: lib/presentation/viewmodels/auth_view_model.dart
-// ================================================
-class AuthViewModel extends ChangeNotifier {
-  final AuthRepository _repository;
-  AuthViewModel(this._repository);
-
-  UserLogin? _currentUser;
-  bool _loading = false;
-  String? _error;
-
-  UserLogin? get currentUser => _currentUser;
-  bool get loading => _loading;
-  String? get error => _error;
-  bool get loggedIn => _currentUser != null;
-
-  Future<void> loginWithPassword(String email, String password) async {
-    _loading = true; _error = null; notifyListeners();
-    try {
-      final user = await _repository.loginWithPassword(email: email, password: password);
-      _currentUser = user;
-    } catch (e) {
-      _error = e.toString();
-    } finally {
-      _loading = false; notifyListeners();
-    }
-  }
-
-  Future<void> loginWithBiometric() async {
-    _loading = true; _error = null; notifyListeners();
-    try {
-      final ok = await _repository.refreshSession(); // lee token de la bóveda (pide huella)
-      if (ok) {
-        // Usuario mock al refrescar por huella (solo para UI)
-        _currentUser = UserLogin(
-          userLoginId: 'biometric',
-          email: 'test@demo.com',
-          password: 'password123',
-          fingerprintEnabled: true,
-        );
-      } else {
-        _error = 'No hay sesión biométrica guardada';
-      }
-    } catch (e) {
-      _error = e.toString();
-    } finally {
-      _loading = false; notifyListeners();
-    }
-  }
-
-  Future<void> logout() async {
-    await _repository.logout();
-    _currentUser = null;
-    notifyListeners();
-  }
-}
+// Eliminada la definición temporal de AuthViewModel. Ahora se importa desde viewmodels/auth_view_model.dart.
 
 // ================================================
 // App root con Provider y rutas

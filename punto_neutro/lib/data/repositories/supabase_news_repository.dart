@@ -5,6 +5,20 @@ import '../../domain/models/rating_item.dart';
 import '../../domain/models/comment.dart';
 
 class SupabaseNewsRepository implements NewsRepository {
+  @override
+  Future<List<NewsItem>> getNewsList() async {
+    try {
+      final response = await _supabase
+          .from('news_items')
+          .select()
+          .order('publication_date', ascending: false)
+          .limit(20);
+      return response.map<NewsItem>((item) => _mapToNewsItem(Map<String, dynamic>.from(item))).toList();
+    } catch (e) {
+      print('❌ Error cargando lista de noticias: $e');
+      return [];
+    }
+  }
   final SupabaseClient _supabase = Supabase.instance.client;
 
   @override
@@ -69,15 +83,16 @@ class SupabaseNewsRepository implements NewsRepository {
   @override
   Future<void> submitRating(RatingItem rating_item) async {
     try {
-      await _supabase.from('rating_items').insert({
-        'rating_item_id': int.tryParse(rating_item.rating_item_id) ?? DateTime.now().millisecondsSinceEpoch,
+      final payload = {
         'news_item_id': int.tryParse(rating_item.news_item_id) ?? 1,
         'user_profile_id': int.tryParse(rating_item.user_profile_id) ?? 1,
         'assigned_reliability_score': rating_item.assigned_reliability_score,
         'comment_text': rating_item.comment_text,
         'rating_date': rating_item.rating_date.toIso8601String(),
         'is_completed': rating_item.is_completed,
-      });
+      };
+      print('📤 [DEBUG] Payload enviado a Supabase (submitRating): $payload');
+      await _supabase.from('rating_items').insert(payload);
       print('✅ Rating enviado a Supabase');
     } catch (e) {
       print('❌ Error enviando rating: $e');

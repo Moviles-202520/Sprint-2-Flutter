@@ -1,14 +1,43 @@
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'dart:async';
 import '../../domain/repositories/news_repository.dart';
 import '../../domain/models/news_item.dart';
 import '../../domain/models/rating_item.dart';
 import '../../domain/models/comment.dart';
 
 class HybridNewsRepository implements NewsRepository {
+  /// Obtiene la lista de noticias (cache-first)
+  @override
+  Future<List<NewsItem>> getNewsList() async {
+    final cacheKey = 'all_news';
+    // 1. Intentar leer del cache
+    final cachedList = _newsCache.get(cacheKey);
+    if (cachedList != null && cachedList is List) {
+      print('📱 Usando lista de noticias desde cache (${cachedList.length})');
+      return cachedList.map<NewsItem>((item) => _mapToNewsItem(Map<String, dynamic>.from(item))).toList();
+    }
+    // 2. Si hay conexión, cargar de Supabase
+    if (await _isConnected) {
+      print('🌐 Cargando lista de noticias desde Supabase...');
+      final response = await _supabase
+          .from('news_items')
+          .select()
+          .order('publication_date', ascending: false)
+          .limit(20)
+          .timeout(const Duration(seconds: 10));
+      final newsList = response.map((item) => Map<String, dynamic>.from(item)).toList();
+      await _newsCache.put(cacheKey, newsList);
+      return newsList.map<NewsItem>(_mapToNewsItem).toList();
+    }
+    // 3. Sin conexión y sin cache
+    print('📴 Sin conexión y sin cache de lista de noticias');
+    return [];
+  }
   final SupabaseClient _supabase = Supabase.instance.client;
   final Connectivity _connectivity = Connectivity();
+  StreamSubscription<ConnectivityResult>? _connectivitySub;
   
   // ✅ CAJAS CON TIPOS CORRECTOS
   Box<dynamic> get _newsCache => Hive.box<dynamic>('news_cache');
@@ -21,17 +50,79 @@ class HybridNewsRepository implements NewsRepository {
     return connectivityResult != ConnectivityResult.none;
   }
 
+  /// Constructor: empezar a escuchar cambios de conectividad para sincronizar pendientes
+  HybridNewsRepository() {
+    _connectivitySub = _connectivity.onConnectivityChanged.listen((result) async {
+      final isConnected = result != ConnectivityResult.none;
+      if (isConnected) {
+        try {
+          print('📶 Conexión detectada — sincronizando datos pendientes');
+          await syncPendingData();
+        } catch (e) {
+          print('⚠️ Error sincronizando al volver la conexión: $e');
+        }
+      }
+    });
+
+    // Intentar sincronizar al iniciar si ya hay conexión
+    () async {
+      if (await _isConnected) {
+        await syncPendingData();
+      }
+    }();
+  }
+
   @override
-  Future<NewsItem> getNewsDetail(String news_item_id) async {
+  Future<NewsItem?> getNewsDetail(String news_item_id) async {
     try {
-      // ✅ PRIMERO VER SI ESTÁ EN CACHE
+        print('🔍 Buscando noticia: $news_item_id');
+      
+        // 1. Intentar leer del cache
       final cachedNews = _newsCache.get(news_item_id);
       if (cachedNews != null) {
         print('📱 Usando noticia desde cache: $news_item_id');
-        return _mapToNewsItem(cachedNews);
+          try {
+            final newsItem = _mapToNewsItem(Map<String, dynamic>.from(cachedNews));
+            print('✅ Noticia mapeada correctamente desde cache');
+            return newsItem;
+          } catch (e) {
+            print('❌ Error mapeando noticia desde cache: $e');
+            // Si falla el mapeo, intentar cargar de Supabase
+          }
+        } else {
+          print('⚠️ No hay cache para noticia: $news_item_id');
+          // 🔎 Intentar obtener desde la lista en cache ('all_news')
+          final cachedList = _newsCache.get('all_news');
+          if (cachedList is List) {
+            try {
+              final match = cachedList
+                  .cast<dynamic>()
+                  .map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e as Map))
+                  .firstWhere(
+                    (e) => (e['news_item_id']?.toString() ?? '') == news_item_id,
+                    orElse: () => {},
+                  );
+              if (match.isNotEmpty) {
+                print('📚 Usando noticia desde lista cacheada (all_news)');
+                // Cachear para acceso directo la próxima vez
+                await _newsCache.put(news_item_id, match);
+                return _mapToNewsItem(match);
+              } else {
+                print('🔎 No se encontró la noticia en la lista cacheada');
+              }
+            } catch (e) {
+              print('⚠️ Error leyendo lista cacheada: $e');
+            }
+          } else {
+            // Opcional: listar algunas claves para diagnóstico
+            try {
+              final keys = _newsCache.keys.take(10).toList();
+              print('🧩 Claves actuales en news_cache (10): $keys');
+            } catch (_) {}
+          }
       }
       
-      // ✅ SI HAY CONEXIÓN, CARGAR DESDE SUPABASE
+      // 2. Si hay conexión, cargar de Supabase
       if (await _isConnected) {
         print('🌐 Cargando noticia desde Supabase: $news_item_id');
         final response = await _supabase
@@ -40,22 +131,24 @@ class HybridNewsRepository implements NewsRepository {
             .eq('news_item_id', int.parse(news_item_id))
             .single()
             .timeout(const Duration(seconds: 10));
-
-        // ✅ CONVERTIR A MAP CORRECTO
+        
+        print('✅ Respuesta de Supabase recibida');
         final responseMap = Map<String, dynamic>.from(response);
-        
-        // ✅ GUARDAR EN CACHE PARA OFFLINE
         await _newsCache.put(news_item_id, responseMap);
+        print('💾 Noticia guardada en cache: $news_item_id');
         
-        return _mapToNewsItem(responseMap);
-      } else {
-        // ✅ SI NO HAY CONEXIÓN, USAR DATOS DE PRUEBA
-        print('📴 Sin conexión, usando datos de prueba');
-        return _getFallbackNews(news_item_id);
+        final newsItem = _mapToNewsItem(responseMap);
+        print('✅ Noticia mapeada correctamente desde Supabase');
+        return newsItem;
       }
-    } catch (e) {
-      print('❌ Error cargando noticia, usando fallback: $e');
-      return _getFallbackNews(news_item_id);
+      
+      // 3. Sin conexión y sin cache
+      print('📴 Sin conexión y sin cache para noticia: $news_item_id');
+      return null;
+    } catch (e, stackTrace) {
+      print('❌ Error cargando noticia: $e');
+      print('Stack trace: $stackTrace');
+      return null;
     }
   }
 
@@ -68,7 +161,7 @@ class HybridNewsRepository implements NewsRepository {
       final cachedComments = _commentsCache.get(cacheKey);
       if (cachedComments != null && cachedComments is List) {
         print('📱 Usando comentarios desde cache: $news_item_id');
-        return (cachedComments as List).map<Comment>((comment) {
+        return cachedComments.map<Comment>((comment) {
           final commentMap = Map<String, dynamic>.from(comment);
           return Comment(
             comment_id: commentMap['comment_id']?.toString() ?? '',
@@ -122,7 +215,6 @@ class HybridNewsRepository implements NewsRepository {
     }
   }
 
-  @override
   Future<int> getRatingsCount(String news_item_id) async {
     try {
       final cacheKey = 'ratings_count_$news_item_id';
@@ -157,15 +249,25 @@ class HybridNewsRepository implements NewsRepository {
     }
   }
 
+  /// Liberar recursos (cancelar listener de conectividad)
+  Future<void> dispose() async {
+    try {
+      await _connectivitySub?.cancel();
+      _connectivitySub = null;
+      print('🧹 HybridNewsRepository disposed (connectivity listener cancelled)');
+    } catch (e) {
+      print('⚠️ Error disposing HybridNewsRepository: $e');
+    }
+  }
+
   @override
   Future<void> submitRating(RatingItem rating_item) async {
     try {
       final pendingKey = 'pending_ratings';
       
       if (await _isConnected) {
-        // ✅ ENVIAR A SUPABASE SI HAY CONEXIÓN
+        // ✅ ENVIAR A SUPABASE SI HAY CONEXIÓN (sin rating_item_id, lo genera Supabase)
         await _supabase.from('rating_items').insert({
-          'rating_item_id': int.tryParse(rating_item.rating_item_id) ?? DateTime.now().millisecondsSinceEpoch,
           'news_item_id': int.tryParse(rating_item.news_item_id) ?? 1,
           'user_profile_id': int.tryParse(rating_item.user_profile_id) ?? 1,
           'assigned_reliability_score': rating_item.assigned_reliability_score,
@@ -176,7 +278,7 @@ class HybridNewsRepository implements NewsRepository {
         print('✅ Rating enviado a Supabase');
       } else {
         // ✅ GUARDAR LOCALMENTE SI NO HAY CONEXIÓN
-        final pendingRatings = _ratingsCache.get(pendingKey, defaultValue: <Map<String, dynamic>>[]) as List<Map<String, dynamic>>;
+  final pendingRatings = (_ratingsCache.get(pendingKey, defaultValue: <Map<String, dynamic>>[]) as List?)?.cast<Map<String, dynamic>>() ?? <Map<String, dynamic>>[];
         
         pendingRatings.add({
           'rating_item_id': rating_item.rating_item_id,
@@ -202,7 +304,7 @@ class HybridNewsRepository implements NewsRepository {
       final pendingKey = 'pending_comments';
       
       if (await _isConnected) {
-        // ✅ ENVIAR A SUPABASE SI HAY CONEXIÓN
+        // ✅ ENVIAR A SUPABASE SI HAY CONEXIÓN (sin comment_id, lo genera Supabase)
         await _supabase.from('comments').insert({
           'news_item_id': int.tryParse(comment.news_item_id) ?? 1,
           'user_profile_id': int.tryParse(comment.user_profile_id) ?? 1,
@@ -243,14 +345,50 @@ class HybridNewsRepository implements NewsRepository {
 
   Future<void> _syncPendingRatings() async {
     final pendingKey = 'pending_ratings';
-    final pendingRatings = _ratingsCache.get(pendingKey, defaultValue: <Map<String, dynamic>>[]) as List<Map<String, dynamic>>;
+  final pendingRatings = (_ratingsCache.get(pendingKey, defaultValue: <Map<String, dynamic>>[]) as List?)?.cast<Map<String, dynamic>>() ?? <Map<String, dynamic>>[];
     
     if (pendingRatings.isNotEmpty) {
       for (final rating in pendingRatings) {
         try {
-          await _supabase.from('rating_items').insert(rating);
+          // No enviar rating_id (puede ser local_xxx), dejar que Supabase lo genere
+          final ratingToSync = Map<String, dynamic>.from(rating);
+          // Eliminar ID local si existe y asegurar tipos correctos
+          ratingToSync.remove('rating_item_id');
+          // Coerciones de tipos requeridas por la BD
+          final newsIdStr = ratingToSync['news_item_id']?.toString();
+          final userIdStr = ratingToSync['user_profile_id']?.toString();
+          final newsId = int.tryParse(newsIdStr ?? '');
+          final userId = int.tryParse(userIdStr ?? '');
+          if (newsId == null || userId == null) {
+            print('❌ Omitiendo rating por IDs inválidos (news:$newsIdStr, user:$userIdStr)');
+            continue;
+          }
+          ratingToSync['news_item_id'] = newsId;
+          ratingToSync['user_profile_id'] = userId;
+          // Fecha
+          final rd = ratingToSync['rating_date'];
+          if (rd is DateTime) {
+            ratingToSync['rating_date'] = rd.toIso8601String();
+          } else if (rd is String) {
+            // Asegurar formato válido
+            try {
+              ratingToSync['rating_date'] = DateTime.parse(rd).toIso8601String();
+            } catch (_) {}
+          }
+          // Score a num/double
+          final score = ratingToSync['assigned_reliability_score'];
+          if (score is String) {
+            ratingToSync['assigned_reliability_score'] = double.tryParse(score) ?? 0.0;
+          }
+          // is_completed a bool
+          final isCompleted = ratingToSync['is_completed'];
+          if (isCompleted is String) {
+            ratingToSync['is_completed'] = (isCompleted.toLowerCase() == 'true');
+          }
+          print('⬆️ Sincronizando rating: $ratingToSync');
+          await _supabase.from('rating_items').insert(ratingToSync);
         } catch (e) {
-          print('Error sincronizando rating: $e');
+          print('❌ Error sincronizando rating: $e');
         }
       }
       await _ratingsCache.put(pendingKey, <Map<String, dynamic>>[]);
@@ -265,9 +403,38 @@ class HybridNewsRepository implements NewsRepository {
     if (pendingComments.isNotEmpty) {
       for (final comment in pendingComments) {
         try {
-          await _supabase.from('comments').insert(comment);
+          // No enviar comment_id (puede ser local_xxx), dejar que Supabase lo genere
+          final commentToSync = Map<String, dynamic>.from(comment);
+          commentToSync.remove('comment_id'); // Eliminar ID local si existe
+          // Coerciones de tipos requeridas por la BD
+          final newsIdStr = commentToSync['news_item_id']?.toString();
+          final userIdStr = commentToSync['user_profile_id']?.toString();
+          final newsId = int.tryParse(newsIdStr ?? '');
+          final userId = int.tryParse(userIdStr ?? '');
+          if (newsId == null || userId == null) {
+            print('❌ Omitiendo comentario por IDs inválidos (news:$newsIdStr, user:$userIdStr)');
+            continue;
+          }
+          commentToSync['news_item_id'] = newsId;
+          commentToSync['user_profile_id'] = userId;
+          // timestamp
+          final ts = commentToSync['timestamp'];
+          if (ts is DateTime) {
+            commentToSync['timestamp'] = ts.toIso8601String();
+          } else if (ts is String) {
+            try {
+              commentToSync['timestamp'] = DateTime.parse(ts).toIso8601String();
+            } catch (_) {}
+          }
+          // Log no sensible (evitar mostrar el texto completo del comentario)
+          final logCopy = Map<String, dynamic>.from(commentToSync);
+          if (logCopy.containsKey('content')) {
+            logCopy['content'] = '<redacted>'; // no exponer contenido
+          }
+          print('⬆️ Sincronizando comentario: $logCopy');
+          await _supabase.from('comments').insert(commentToSync);
         } catch (e) {
-          print('Error sincronizando comentario: $e');
+          print('❌ Error sincronizando comentario: $e');
         }
       }
       await _commentsCache.put(pendingKey, <Map<String, dynamic>>[]);
@@ -304,241 +471,4 @@ class HybridNewsRepository implements NewsRepository {
   );
 }
 
-  // ✅ DATOS DE PRUEBA PARA OFFLINE
-  NewsItem _getFallbackNews(String news_item_id) {
-    final fallbackNews = {
-      '1': NewsItem(
-        news_item_id: '1',
-        user_profile_id: '2',
-        title: 'NASA Discovers Possible Signs of Life on Europa',
-        short_description: 'Ice-covered moon could harbor microbial life.',
-        image_url: '',
-        category_id: '3',
-        author_type: 'Staff Reporter',
-        author_institution: 'NASA',
-        days_since: 21,
-        comments_count: 3,
-        average_reliability_score: 0.79,
-        is_fake: false,
-        is_verified_source: true,
-        is_verified_data: true,
-        is_recognized_author: true,
-        is_manipulated: false,
-        long_description: 'NASA scientists report signs of potential biosignatures under Europa\'s icy surface after deep radar scans from the Europa Clipper.',
-        original_source_url: 'https://www.nasa.gov/mission_pages/europa/news/signs-of-life',
-        publication_date: DateTime(2025, 9, 10),
-        added_to_app_date: DateTime(2025, 9, 15),
-        total_ratings: 158,
-      ),
-      '2': NewsItem(
-        news_item_id: '2',
-        user_profile_id: '1',
-        title: 'US Inflation Cools to 2.4 percent in Q2',
-        short_description: 'Lower prices for food and energy lead to drop.',
-        image_url: '',
-        category_id: '4',
-        author_type: 'Economist',
-        author_institution: 'Bureau of Labor Statistics',
-        days_since: 33,
-        comments_count: 2,
-        average_reliability_score: 0.85,
-        is_fake: false,
-        is_verified_source: true,
-        is_verified_data: true,
-        is_recognized_author: true,
-        is_manipulated: false,
-        long_description: 'The BLS reports inflation cooled in Q2 as core CPI fell due to easing energy and food prices, suggesting stability in consumer prices.',
-        original_source_url: 'https://www.bls.gov/news.release/cpi.nr0.htm',
-        publication_date: DateTime(2025, 8, 25),
-        added_to_app_date: DateTime(2025, 8, 28),
-        total_ratings: 42,
-      ),
-      '3': NewsItem(
-        news_item_id: '3',
-        user_profile_id: '4',
-        title: 'FIFA 2026 World Cup Groups Announced',
-        short_description: 'Major teams to face off in tough early matchups.',
-        image_url: '',
-        category_id: '2',
-        author_type: 'Sports Analyst',
-        author_institution: 'ESPN',
-        days_since: 12,
-        comments_count: 5,
-        average_reliability_score: 0.92,
-        is_fake: false,
-        is_verified_source: true,
-        is_verified_data: true,
-        is_recognized_author: true,
-        is_manipulated: false,
-        long_description: 'FIFA reveals group stage draw for the 2026 World Cup. Brazil and Germany land in a tough group, raising early excitement.',
-        original_source_url: 'https://www.espn.com/soccer/fifa-world-cup/story/_/id/38373692/fifa-2026-group-stage-draw',
-        publication_date: DateTime(2025, 9, 22),
-        added_to_app_date: DateTime(2025, 9, 25),
-        total_ratings: 231,
-      ),
-      '4': NewsItem(
-        news_item_id: '4',
-        user_profile_id: '3',
-        title: 'Climate Crisis: Antarctic Ice Hits Historic Low',
-        short_description: 'Scientists raise alarms over accelerating melt.',
-        image_url: '',
-        category_id: '6',
-        author_type: 'Environmental Journalist',
-        author_institution: 'The Guardian',
-        days_since: 45,
-        comments_count: 8,
-        average_reliability_score: 0.88,
-        is_fake: false,
-        is_verified_source: true,
-        is_verified_data: true,
-        is_recognized_author: true,
-        is_manipulated: false,
-        long_description: 'Antarctica\'s winter sea ice has reached its lowest recorded level, raising fears about the rate of global warming.',
-        original_source_url: 'https://www.theguardian.com/environment/2025/aug/15/antarctic-ice-low',
-        publication_date: DateTime(2025, 8, 15),
-        added_to_app_date: DateTime(2025, 8, 20),
-        total_ratings: 350,
-      ),
-      '5': NewsItem(
-        news_item_id: '5',
-        user_profile_id: '5',
-        title: 'Unemployment Rate Rises Slightly to 4.1 percent',
-        short_description: 'Job growth slows in September report.',
-        image_url: '',
-        category_id: '4',
-        author_type: 'Business Correspondent',
-        author_institution: 'Reuters',
-        days_since: 10,
-        comments_count: 3,
-        average_reliability_score: 0.81,
-        is_fake: false,
-        is_verified_source: true,
-        is_verified_data: true,
-        is_recognized_author: true,
-        is_manipulated: false,
-        long_description: 'The U.S. economy added 120,000 jobs in September, slightly below expectations, pushing unemployment to 4.1%.',
-        original_source_url: 'https://www.reuters.com/markets/us/us-job-growth-2025-september',
-        publication_date: DateTime(2025, 9, 24),
-        added_to_app_date: DateTime(2025, 9, 26),
-        total_ratings: 73,
-      ),
-      '6': NewsItem(
-        news_item_id: '6',
-        user_profile_id: '1',
-        title: 'Deepfake Video of World Leader Sparks Outrage',
-        short_description: 'Experts confirm video is AI-generated.',
-        image_url: '',
-        category_id: '1',
-        author_type: 'Cybersecurity Expert',
-        author_institution: 'MIT Media Lab',
-        days_since: 18,
-        comments_count: 12,
-        average_reliability_score: 0.33,
-        is_fake: true,
-        is_verified_source: false,
-        is_verified_data: false,
-        is_recognized_author: false,
-        is_manipulated: true,
-        long_description: 'A viral video appearing to show a world leader making controversial remarks was confirmed to be a deepfake, sparking global concern.',
-        original_source_url: 'https://www.bbc.com/news/technology-66832010',
-        publication_date: DateTime(2025, 9, 17),
-        added_to_app_date: DateTime(2025, 9, 20),
-        total_ratings: 212,
-      ),
-      '7': NewsItem(
-        news_item_id: '7',
-        user_profile_id: '2',
-        title: 'Local Farmers Protest New Water Regulations',
-        short_description: 'Rural communities push back on restrictions.',
-        image_url: '',
-        category_id: '8',
-        author_type: 'Local Reporter',
-        author_institution: 'Daily Herald',
-        days_since: 40,
-        comments_count: 6,
-        average_reliability_score: 0.76,
-        is_fake: false,
-        is_verified_source: true,
-        is_verified_data: true,
-        is_recognized_author: false,
-        is_manipulated: false,
-        long_description: 'In response to new water usage laws, hundreds of farmers in rural Iowa have staged peaceful protests demanding policy revisions.',
-        original_source_url: 'https://www.localnewsnetwork.com/iowa-water-law-protest',
-        publication_date: DateTime(2025, 8, 20),
-        added_to_app_date: DateTime(2025, 8, 23),
-        total_ratings: 64,
-      ),
-      '8': NewsItem(
-        news_item_id: '8',
-        user_profile_id: '5',
-        title: 'Peace Talks Resume Between Armenia and Azerbaijan',
-        short_description: 'Ceasefire efforts underway after months of conflict.',
-        image_url: '',
-        category_id: '7',
-        author_type: 'Foreign Affairs Analyst',
-        author_institution: 'Al Jazeera',
-        days_since: 8,
-        comments_count: 4,
-        average_reliability_score: 0.89,
-        is_fake: false,
-        is_verified_source: true,
-        is_verified_data: true,
-        is_recognized_author: true,
-        is_manipulated: false,
-        long_description: 'Negotiations facilitated by EU officials aim to stabilize the region following recent escalations along the Nagorno-Karabakh border.',
-        original_source_url: 'https://www.aljazeera.com/news/2025/9/26/armenia-azerbaijan-talks',
-        publication_date: DateTime(2025, 9, 26),
-        added_to_app_date: DateTime(2025, 9, 28),
-        total_ratings: 87,
-      ),
-      '9': NewsItem(
-        news_item_id: '9',
-        user_profile_id: '3',
-        title: 'Meta Launches ‘MindLink’: Brain-Computer Interface',
-        short_description: 'New tech lets users type with thoughts.',
-        image_url: '',
-        category_id: '3',
-        author_type: 'Tech Reporter',
-        author_institution: 'TechCrunch',
-        days_since: 25,
-        comments_count: 7,
-        average_reliability_score: 0.84,
-        is_fake: false,
-        is_verified_source: true,
-        is_verified_data: true,
-        is_recognized_author: true,
-        is_manipulated: false,
-        long_description: 'Meta has unveiled "MindLink," a wearable device that allows users to interact with digital platforms using neural signals.',
-        original_source_url: 'https://techcrunch.com/2025/09/05/meta-mindlink-launch',
-        publication_date: DateTime(2025, 9, 5),
-        added_to_app_date: DateTime(2025, 9, 7),
-        total_ratings: 103,
-      ),
-      '10': NewsItem(
-        news_item_id: '10',
-        user_profile_id: '4',
-        title: 'Fake COVID-19 Cure Article Circulates on WhatsApp',
-        short_description: 'WHO warns against dangerous misinformation.',
-        image_url: '',
-        category_id: '1',
-        author_type: 'Health Misinformation Analyst',
-        author_institution: 'World Health Organization',
-        days_since: 27,
-        comments_count: 9,
-        average_reliability_score: 0.26,
-        is_fake: true,
-        is_verified_source: false,
-        is_verified_data: false,
-        is_recognized_author: true,
-        is_manipulated: true,
-        long_description: 'A widely shared message claiming a herbal mixture can cure COVID-19 has been flagged by the WHO as dangerous misinformation.',
-        original_source_url: 'https://www.who.int/news-room/articles/2025/09/03/fake-covid-remedy-debunked',
-        publication_date: DateTime(2025, 9, 3),
-        added_to_app_date: DateTime(2025, 9, 6),
-        total_ratings: 188,
-      ),
-    };
-    
-    return fallbackNews[news_item_id] ?? fallbackNews['1']!;
-  }
 }

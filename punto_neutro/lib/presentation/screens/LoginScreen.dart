@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:punto_neutro/presentation/screens/news_feed_screen.dart';
-import 'package:punto_neutro/presentation/screens/PuntoNeutroApp.dart' show AuthViewModel;
+import 'package:punto_neutro/presentation/screens/analytics_dashboard_screen.dart';
+import 'package:punto_neutro/presentation/viewmodels/auth_view_model.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -28,7 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (context) => const NewsFeedScreen()),
+            MaterialPageRoute(builder: (context) => NewsFeedScreen()),
           );
         }
       });
@@ -190,14 +191,23 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             onPressed: vm.loading
                                 ? null
-                                : () => vm.loginWithPassword(
-                              _emailController.text.trim(),
-                              _passwordController.text.trim(),
-                            ),
+                                : () {
+                                    if (_isSignInSelected) {
+                                      vm.loginWithPassword(
+                                        _emailController.text.trim(),
+                                        _passwordController.text.trim(),
+                                      );
+                                    } else {
+                                      vm.registerWithPassword(
+                                        _emailController.text.trim(),
+                                        _passwordController.text.trim(),
+                                      );
+                                    }
+                                  },
                             child: vm.loading
                                 ? const SizedBox(width: 20, height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                : const Text('Sign In', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : Text(_isSignInSelected ? 'Sign In' : 'Register', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
                           ),
                         ),
 
@@ -234,6 +244,24 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   const SizedBox(height: 20), // espacio final
+                  // Botón para navegar al dashboard de analytics
+                  Center(
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.analytics),
+                      label: const Text('Ver Dashboard de Analytics'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                      ),
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const AnalyticsDashboardScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                 ],
               ),
             ),
