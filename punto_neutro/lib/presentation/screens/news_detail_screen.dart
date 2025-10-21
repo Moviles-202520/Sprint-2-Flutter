@@ -28,21 +28,7 @@ class NewsDetailScreen extends StatelessWidget {
 }
 
 class _NewsDetailContent extends StatelessWidget {
-  // Helper: Key-Value row
-  Widget _kv(String k, String v) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4),
-    child: Row(
-      children: [
-        SizedBox(
-          width: 90,
-          child: Text(k, style: const TextStyle(color: Colors.black54)),
-        ),
-        Expanded(
-          child: Text(v, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ),
-      ],
-    ),
-  );
+  // Helper: Key-Value row (unused in this widget; removed to avoid analyzer warning)
 
   // Helper: Card container
   Widget _card({required Widget child}) => Container(
@@ -430,7 +416,6 @@ class _RateCardState extends State<_RateCard> {
   @override
   Widget build(BuildContext context) {
     final pct = (_reliability_score * 100).round();
-    // ...existing code...
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -441,7 +426,96 @@ class _RateCardState extends State<_RateCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ...existing code...
+          const Row(
+            children: [
+              Icon(Icons.stars_rounded, size: 18),
+              SizedBox(width: 8),
+              Text(
+                'Rate reliability',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Score preview
+          Row(
+            children: [
+              Text(
+                'Your score: ',
+                style: TextStyle(color: Colors.black.withOpacity(.7)),
+              ),
+              Text(
+                '$pct%',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: _getScoreColor(pct),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                _reliability_label,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          // Slider control
+          Slider(
+            value: _reliability_score,
+            min: 0,
+            max: 1,
+            divisions: 20,
+            label: '$pct%',
+            activeColor: _getScoreColor(pct),
+            onChanged: (v) => setState(() => _reliability_score = v),
+          ),
+
+          const SizedBox(height: 4),
+
+          // Optional mini bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: _reliability_score,
+              minHeight: 8,
+              backgroundColor: Colors.black12,
+              color: _getScoreColor(pct),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Optional comment
+          TextField(
+            controller: _comment_controller,
+            maxLines: 3,
+            maxLength: _max_chars,
+            decoration: InputDecoration(
+              hintText: 'Add an optional comment (max $_max_chars chars)',
+              filled: true,
+              fillColor: Colors.grey.shade50,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              counterText:
+                  '${_comment_controller.text.length}/$_max_chars',
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+
+          const SizedBox(height: 8),
+
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              onPressed: _submitRating,
+              icon: const Icon(Icons.send_rounded, size: 18),
+              label: const Text('Submit rating'),
+            ),
+          ),
         ],
       ),
     );
@@ -728,10 +802,32 @@ class _CommentSectionState extends State<_CommentSection> {
   }
 
   Widget _buildCommentInput() {
-    // ...existing code...
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        // ...existing code...
+        Expanded(
+          child: TextField(
+            controller: _comment_controller,
+            maxLines: 3,
+            minLines: 1,
+            decoration: InputDecoration(
+              hintText: 'Write a comment…',
+              filled: true,
+              fillColor: Colors.grey.shade50,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+            onChanged: (text) => setState(() => _hasText = text.trim().isNotEmpty),
+          ),
+        ),
+        const SizedBox(width: 8),
+        FilledButton(
+          onPressed: _hasText ? _postComment : null,
+          child: const Icon(Icons.send_rounded, size: 18),
+        ),
       ],
     );
   }
