@@ -4,8 +4,14 @@ import '../domain/models/news_item.dart';
 import '../domain/models/rating_item.dart';
 import '../domain/models/comment.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../core/analytics_service.dart';
 
 class NewsDetailViewModel extends ChangeNotifier {
+  // Lleva registro de eventos 'started' disparados por noticia y tipo
+  bool _ratingStarted = false;
+  bool _ratingCompleted = false;
+  bool _commentStarted = false;
+  bool _commentCompleted = false;
   final NewsRepository _repository;
   final String news_item_id;
   final String userProfileId;
@@ -42,6 +48,7 @@ class NewsDetailViewModel extends ChangeNotifier {
   }
 
   Future<void> submitRating(double score, String? comment_text, String userProfileId) async {
+    _ratingStarted = true;
     _is_submitting_rating = true;
     notifyListeners();
 
@@ -69,7 +76,17 @@ class NewsDetailViewModel extends ChangeNotifier {
       print('📤 [DEBUG] Enviando rating con user_profile_id: ${rating_item.user_profile_id}');
       print('📤 [DEBUG] news_item_id: ${rating_item.news_item_id}');
       
-      await _repository.submitRating(rating_item);
+  // El insert lo realiza AnalyticsService.trackRatingGiven
+      
+      // Track rating completed event for BQ1
+      await AnalyticsService().trackRatingGiven(
+        int.tryParse(news_item_id) ?? 0,
+        int.tryParse(userProfileId) ?? 0,
+        score,
+        comment_text ?? '',
+      );
+      _ratingCompleted = true;
+      
       print('✅ [DEBUG] Rating enviado exitosamente');
     } catch (e, stackTrace) {
       print('❌ Error submitting rating: $e');
@@ -81,25 +98,48 @@ class NewsDetailViewModel extends ChangeNotifier {
   }
 
   Future<void> submitComment(String content) async {
-  _is_submitting_comment = true;
-  notifyListeners();
+    _commentStarted = true;
 
-  try {
-    final comment = Comment(
-      comment_id: DateTime.now().millisecondsSinceEpoch.toString(),
-      news_item_id: news_item_id,
-      user_profile_id: userProfileId,
-      user_name: 'You',
-      content: content,
-      timestamp: DateTime.now(),
-    );
-    await _repository.submitComment(comment);
-    _comments.insert(0, comment);
-  } catch (e) {
-    print('Error submitting comment: $e');
-  } finally {
-    _is_submitting_comment = false;
+    _is_submitting_comment = true;
     notifyListeners();
+
+    try {
+      final comment = Comment(
+        comment_id: DateTime.now().millisecondsSinceEpoch.toString(),
+        news_item_id: news_item_id,
+        user_profile_id: userProfileId,
+        user_name: 'You',
+        content: content,
+        timestamp: DateTime.now(),
+      );
+  // El insert lo realiza AnalyticsService.trackCommentCompleted
+      
+      // Track comment completed event for BQ1
+      await AnalyticsService().trackCommentCompleted(
+        int.tryParse(news_item_id) ?? 0,
+        int.tryParse(userProfileId) ?? 0,
+        content,
+      );
+      _commentCompleted = true;
+  @override
+  void dispose() {
+    // Si el usuario inició pero NO completó rating, registrar 'started'
+    if (_ratingStarted && !_ratingCompleted) {
+      AnalyticsService().trackRatingStarted(int.tryParse(news_item_id) ?? 0, int.tryParse(userProfileId) ?? 0);
+    }
+    // Si el usuario inició pero NO completó comentario, registrar 'started'
+    if (_commentStarted && !_commentCompleted) {
+      AnalyticsService().trackCommentStarted(int.tryParse(news_item_id) ?? 0);
+    }
+    super.dispose();
   }
-}
+      
+      _comments.insert(0, comment);
+    } catch (e) {
+      print('Error submitting comment: $e');
+    } finally {
+      _is_submitting_comment = false;
+      notifyListeners();
+    }
+  }
 }

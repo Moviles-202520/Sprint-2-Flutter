@@ -91,9 +91,9 @@ class SupabaseNewsRepository implements NewsRepository {
         'rating_date': rating_item.rating_date.toIso8601String(),
         'is_completed': rating_item.is_completed,
       };
-      print('📤 [DEBUG] Payload enviado a Supabase (submitRating): $payload');
-      await _supabase.from('rating_items').insert(payload);
-      print('✅ Rating enviado a Supabase');
+  print('📤 [DEBUG] Payload enviado a Supabase (submitRating): $payload');
+  // El insert lo realiza AnalyticsService.trackRatingGiven
+  print('✅ Rating NO enviado aquí, lo maneja AnalyticsService');
     } catch (e) {
       print('❌ Error enviando rating: $e');
     }
@@ -102,15 +102,8 @@ class SupabaseNewsRepository implements NewsRepository {
   @override
   Future<void> submitComment(Comment comment) async {
     try {
-      await _supabase.from('comments').insert({
-        // comment_id se auto-genera (BIGSERIAL)
-        'news_item_id': int.tryParse(comment.news_item_id) ?? 1,
-        'user_profile_id': int.tryParse(comment.user_profile_id) ?? 1,
-        'user_name': comment.user_name,
-        'content': comment.content,
-        'timestamp': comment.timestamp.toIso8601String(),
-      });
-      print('✅ Comentario guardado en Supabase');
+      // El insert lo realiza AnalyticsService.trackCommentCompleted
+      print('✅ Comentario NO enviado aquí, lo maneja AnalyticsService');
     } catch (e) {
       print('❌ Error guardando comentario: $e');
       rethrow;

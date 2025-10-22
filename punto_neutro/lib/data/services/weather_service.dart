@@ -13,11 +13,7 @@ class WeatherService {
   Future<WeatherData> getCurrentWeather({required String city}) async {
     final url = Uri.parse('$_baseUrl/current.json?key=$apiKey&q=${Uri.encodeComponent(city)}&aqi=no');
     try {
-      print('[WEATHER] Requesting: $url');
       final resp = await client.get(url).timeout(const Duration(seconds: 12));
-      print('[WEATHER] statusCode=${resp.statusCode}');
-      final bodySnippet = resp.body.length > 500 ? resp.body.substring(0, 500) + '... (truncated)' : resp.body;
-      print('[WEATHER] body: $bodySnippet');
       if (resp.statusCode != 200) throw Exception('Failed to fetch weather: ${resp.statusCode}');
       final json = jsonDecode(resp.body) as Map<String, dynamic>;
       return WeatherData.fromJson(json);

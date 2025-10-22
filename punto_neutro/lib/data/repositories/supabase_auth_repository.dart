@@ -47,6 +47,7 @@ class SupabaseAuthRepository implements AuthRepository {
       final response = await _supabase
           .from('user_profiles')
           .insert({
+            'user_auth_id': authResponse.user!.id,
             'user_auth_email': authResponse.user!.email,
           })
           .select()
@@ -86,21 +87,12 @@ class SupabaseAuthRepository implements AuthRepository {
       print('[LOGIN] ✅ Usuario autenticado con Supabase: ${authResponse.user!.id}');
       print('[LOGIN] 🔑 Email autenticado: ${authResponse.user!.email}');
 
-      // Buscar el perfil correspondiente en user_profiles
+      // Buscar el perfil correspondiente en user_profiles por user_auth_id
       var response = await _supabase
           .from('user_profiles')
           .select()
-          .eq('user_auth_email', lowered)
+          .eq('user_auth_id', authResponse.user!.id)
           .maybeSingle();
-
-      // Si no hay perfil, intentar con email exacto del auth
-      if (response == null && authResponse.user!.email != null) {
-        response = await _supabase
-            .from('user_profiles')
-            .select()
-            .eq('user_auth_email', authResponse.user!.email!)
-            .maybeSingle();
-      }
 
       if (response == null) {
         print('[LOGIN] ⚠️ Usuario autenticado pero sin perfil en user_profiles');
@@ -108,6 +100,7 @@ class SupabaseAuthRepository implements AuthRepository {
         response = await _supabase
             .from('user_profiles')
             .insert({
+              'user_auth_id': authResponse.user!.id,
               'user_auth_email': authResponse.user!.email,
             })
             .select()

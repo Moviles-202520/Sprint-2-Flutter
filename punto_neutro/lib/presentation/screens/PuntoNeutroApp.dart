@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:punto_neutro/presentation/screens/LoginScreen.dart';
 import 'package:punto_neutro/presentation/viewmodels/auth_view_model.dart';
+import '../../core/analytics_service.dart';
 
 // Imports de tu capa de datos
 import '../../data/repositories/supabase_auth_repository.dart';
@@ -12,8 +14,60 @@ import '../../data/repositories/supabase_auth_repository.dart';
 // App root con Provider y rutas
 // ================================================
 
-class PuntoNeutroApp extends StatelessWidget {
+class PuntoNeutroApp extends StatefulWidget {
   const PuntoNeutroApp({super.key});
+
+  @override
+  State<PuntoNeutroApp> createState() => _PuntoNeutroAppState();
+}
+
+class _PuntoNeutroAppState extends State<PuntoNeutroApp> with WidgetsBindingObserver {
+  Timer? _sessionCloseTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    _sessionCloseTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    print('🔔 [LIFECYCLE] App lifecycle cambió a: $state');
+    
+    if (state == AppLifecycleState.hidden) {
+      // En web: hidden se dispara al cambiar pestaña O cerrar
+      // Cerramos sesión inmediatamente porque si es cierre real, no habrá tiempo para timer
+      // Si solo cambió de pestaña y vuelve, startSession() creará nueva sesión
+      print('📴 [LIFECYCLE] App hidden (web), cerrando sesión...');
+      _sessionCloseTimer?.cancel();
+      AnalyticsService().endSession();
+    } else if (state == AppLifecycleState.paused) {
+      // En móvil: paused = app en background pero aún viva
+      // Usar timer para distinguir background temporal vs cierre
+      print('⏸️ [LIFECYCLE] App pausada (móvil), iniciando timer de 30s...');
+      _sessionCloseTimer?.cancel();
+      _sessionCloseTimer = Timer(const Duration(seconds: 30), () {
+        print('⏰ [LIFECYCLE] Timer cumplido, cerrando sesión...');
+        AnalyticsService().endSession();
+      });
+    } else if (state == AppLifecycleState.resumed) {
+      // Si vuelve antes de 30 segundos (móvil) o abre nueva pestaña (web)
+      print('▶️ [LIFECYCLE] App resumed, cancelando timer...');
+      _sessionCloseTimer?.cancel();
+    } else if (state == AppLifecycleState.detached) {
+      // En móvil: detached = cierre definitivo
+      print('📴 [LIFECYCLE] App detached (cierre definitivo móvil)...');
+      _sessionCloseTimer?.cancel();
+      AnalyticsService().endSession();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -397,21 +397,7 @@ class _RateCardState extends State<_RateCard> {
     return 'Very reliable';
   }
 
-  bool _eventTracked = false;
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_eventTracked) {
-      try {
-        final newsItemId = widget.viewModel.news_item?.news_item_id;
-        final userProfileId = widget.viewModel.userProfileId;
-        if (newsItemId != null && userProfileId.isNotEmpty) {
-          AnalyticsService().trackRatingStarted(int.tryParse(newsItemId) ?? 0, int.tryParse(userProfileId) ?? 0);
-        }
-      } catch (_) {}
-      _eventTracked = true;
-    }
-  }
+  // ...existing code...
 
   @override
   Widget build(BuildContext context) {
@@ -785,21 +771,7 @@ class _CommentSectionState extends State<_CommentSection> {
     );
   }
 
-  bool _eventTracked = false;
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_eventTracked) {
-      try {
-        final newsItemId = widget.viewModel.news_item?.news_item_id;
-        final userProfileId = widget.viewModel.userProfileId;
-        if (newsItemId != null && userProfileId.isNotEmpty) {
-          AnalyticsService().trackCommentStarted(int.tryParse(newsItemId) ?? 0);
-        }
-      } catch (_) {}
-      _eventTracked = true;
-    }
-  }
+  // ...existing code...
 
   Widget _buildCommentInput() {
     return Row(

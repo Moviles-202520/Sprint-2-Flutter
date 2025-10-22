@@ -214,6 +214,8 @@ class _NewsItemCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
+        // Incrementar contador de artículos vistos
+        AnalyticsService().incrementArticlesViewed();
         Navigator.push(
           context,
           MaterialPageRoute(
