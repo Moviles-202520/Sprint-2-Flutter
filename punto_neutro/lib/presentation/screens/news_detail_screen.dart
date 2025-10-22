@@ -387,6 +387,21 @@ class _RateCardState extends State<_RateCard> {
   double _reliability_score = 0.5;
   final _comment_controller = TextEditingController();
   static const _max_chars = 500;
+  bool _ratingStartedTracked = false;
+
+  void _ensureRatingStarted() {
+    if (_ratingStartedTracked) return;
+    final newsIdStr = widget.viewModel.news_item?.news_item_id;
+    final userProfileIdStr = widget.viewModel.userProfileId;
+    final newsId = int.tryParse(newsIdStr ?? '');
+    final userId = int.tryParse(userProfileIdStr);
+    if (newsId != null && userId != null) {
+      try {
+        AnalyticsService().trackRatingStarted(newsId, userId);
+        _ratingStartedTracked = true;
+      } catch (_) {}
+    }
+  }
 
   String get _reliability_label {
     final pct = (_reliability_score * 100).round();
@@ -397,7 +412,6 @@ class _RateCardState extends State<_RateCard> {
     return 'Very reliable';
   }
 
-  // ...existing code...
 
   @override
   Widget build(BuildContext context) {
@@ -456,20 +470,12 @@ class _RateCardState extends State<_RateCard> {
             divisions: 20,
             label: '$pct%',
             activeColor: _getScoreColor(pct),
-            onChanged: (v) => setState(() => _reliability_score = v),
-          ),
-
-          const SizedBox(height: 4),
-
-          // Optional mini bar
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: LinearProgressIndicator(
-              value: _reliability_score,
-              minHeight: 8,
-              backgroundColor: Colors.black12,
-              color: _getScoreColor(pct),
-            ),
+            onChanged: (v) {
+                    _ensureRatingStarted();
+                    // also mark on viewModel so dispose() knows rating was started
+                    widget.viewModel.markRatingStarted();
+              setState(() => _reliability_score = v);
+            },
           ),
 
           const SizedBox(height: 16),
@@ -489,7 +495,13 @@ class _RateCardState extends State<_RateCard> {
               counterText:
                   '${_comment_controller.text.length}/$_max_chars',
             ),
-            onChanged: (_) => setState(() {}),
+            onTap: _ensureRatingStarted,
+            onChanged: (_) {
+              _ensureRatingStarted();
+              // mark the viewModel that rating was started
+              widget.viewModel.markRatingStarted();
+              setState(() {});
+            },
           ),
 
           const SizedBox(height: 8),
@@ -644,6 +656,20 @@ class _CommentSection extends StatefulWidget {
 class _CommentSectionState extends State<_CommentSection> {
   final TextEditingController _comment_controller = TextEditingController();
   bool _hasText = false;
+  bool _commentStartedTracked = false;
+
+  void _ensureCommentStarted() {
+    if (_commentStartedTracked) return;
+    final newsIdStr = widget.viewModel.news_item?.news_item_id;
+    final newsId = int.tryParse(newsIdStr ?? '');
+    if (newsId != null) {
+      try {
+        final userId = Provider.of<AuthViewModel>(context, listen: false).userProfileId;
+        AnalyticsService().trackCommentStarted(newsId, userId);
+        _commentStartedTracked = true;
+      } catch (_) {}
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -771,8 +797,6 @@ class _CommentSectionState extends State<_CommentSection> {
     );
   }
 
-  // ...existing code...
-
   Widget _buildCommentInput() {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -792,7 +816,15 @@ class _CommentSectionState extends State<_CommentSection> {
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             ),
-            onChanged: (text) => setState(() => _hasText = text.trim().isNotEmpty),
+                onTap: () {
+                  _ensureCommentStarted();
+                  widget.viewModel.markCommentStarted();
+                },
+                onChanged: (text) {
+                  _ensureCommentStarted();
+                  widget.viewModel.markCommentStarted();
+                  setState(() => _hasText = text.trim().isNotEmpty);
+                },
           ),
         ),
         const SizedBox(width: 8),

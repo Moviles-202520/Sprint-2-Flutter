@@ -38,6 +38,16 @@ class NewsDetailViewModel extends ChangeNotifier {
       notifyListeners();
       
       _news_item = await _repository.getNewsDetail(news_item_id);
+      // Record viewed article + category as a fallback in case the tap-path
+      // did not persist the viewed_categories row. incrementArticlesViewed
+      // is idempotent for the same news_item_id in a session.
+      try {
+        final catId = int.tryParse(_news_item?.category_id ?? '');
+        print('🔔 [DETAIL] Recording view for news $news_item_id, category=$catId');
+        await AnalyticsService().incrementArticlesViewed(_news_item!.news_item_id, catId);
+      } catch (e) {
+        print('⚠️ [DETAIL] Error recording view on detail load: $e');
+      }
       _comments = await _repository.getComments(news_item_id);
     } catch (e) {
       print('Error loading data: $e');
@@ -97,6 +107,11 @@ class NewsDetailViewModel extends ChangeNotifier {
     }
   }
 
+  /// Mark that the user started a rating interaction (used by UI)
+  void markRatingStarted() {
+    _ratingStarted = true;
+  }
+
   Future<void> submitComment(String content) async {
     _commentStarted = true;
 
@@ -121,18 +136,6 @@ class NewsDetailViewModel extends ChangeNotifier {
         content,
       );
       _commentCompleted = true;
-  @override
-  void dispose() {
-    // Si el usuario inició pero NO completó rating, registrar 'started'
-    if (_ratingStarted && !_ratingCompleted) {
-      AnalyticsService().trackRatingStarted(int.tryParse(news_item_id) ?? 0, int.tryParse(userProfileId) ?? 0);
-    }
-    // Si el usuario inició pero NO completó comentario, registrar 'started'
-    if (_commentStarted && !_commentCompleted) {
-      AnalyticsService().trackCommentStarted(int.tryParse(news_item_id) ?? 0);
-    }
-    super.dispose();
-  }
       
       _comments.insert(0, comment);
     } catch (e) {
@@ -141,5 +144,23 @@ class NewsDetailViewModel extends ChangeNotifier {
       _is_submitting_comment = false;
       notifyListeners();
     }
+  }
+
+  /// Mark that the user started composing a comment (used by UI)
+  void markCommentStarted() {
+    _commentStarted = true;
+  }
+
+  @override
+  void dispose() {
+    // Si el usuario inició pero NO completó rating, registrar 'started'
+    if (_ratingStarted && !_ratingCompleted) {
+      AnalyticsService().flushRatingStart(int.tryParse(news_item_id) ?? 0, int.tryParse(userProfileId) ?? 0);
+    }
+    // Si el usuario inició pero NO completó comentario, registrar 'started'
+    if (_commentStarted && !_commentCompleted) {
+      AnalyticsService().flushCommentStart(int.tryParse(news_item_id) ?? 0, int.tryParse(userProfileId));
+    }
+    super.dispose();
   }
 }

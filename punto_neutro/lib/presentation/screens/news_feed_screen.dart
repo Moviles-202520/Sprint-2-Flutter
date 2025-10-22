@@ -189,7 +189,11 @@ class _NewsFeedScreenState extends State<NewsFeedScreen> {
           onPageChanged: (index) {
             viewModel.setCurrentIndex(index);
             // track article viewed
-            AnalyticsService().incrementArticlesViewed();
+            final news = viewModel.newsItems[index];
+            // When scrolling the feed, only increment the article counter.
+            // Do NOT record the session-category relation here — that should
+            // only be recorded when the user clicks into the detail screen.
+            AnalyticsService().incrementArticlesViewed(news.news_item_id);
           },
           itemBuilder: (context, index) {
             final news = viewModel.newsItems[index];
@@ -213,9 +217,14 @@ class _NewsItemCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () {
-        // Incrementar contador de artículos vistos
-        AnalyticsService().incrementArticlesViewed();
+      onTap: () async {
+        // Incrementar contador de artículos vistos and record category before navigation
+        final catId = int.tryParse(news.category_id);
+        try {
+          await AnalyticsService().incrementArticlesViewed(news.news_item_id, catId);
+        } catch (e) {
+          print('⚠️ [UI] Error waiting for analytics increment: $e');
+        }
         Navigator.push(
           context,
           MaterialPageRoute(

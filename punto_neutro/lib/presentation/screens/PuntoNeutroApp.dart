@@ -4,11 +4,10 @@ import 'package:provider/provider.dart';
 import 'package:punto_neutro/presentation/screens/LoginScreen.dart';
 import 'package:punto_neutro/presentation/viewmodels/auth_view_model.dart';
 import '../../core/analytics_service.dart';
+import '../../core/web_unload.dart';
 
 // Imports de tu capa de datos
 import '../../data/repositories/supabase_auth_repository.dart';
-
-// Eliminada la definición temporal de AuthViewModel. Ahora se importa desde viewmodels/auth_view_model.dart.
 
 // ================================================
 // App root con Provider y rutas
@@ -28,12 +27,17 @@ class _PuntoNeutroAppState extends State<PuntoNeutroApp> with WidgetsBindingObse
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Web: cerrar sesión solo cuando se cierra/recarga la pestaña (no por hidden/minimize)
+    registerBeforeUnload(() {
+      AnalyticsService().endSession();
+    });
   }
 
   @override
   void dispose() {
     _sessionCloseTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
+    unregisterBeforeUnload();
     super.dispose();
   }
 
@@ -42,12 +46,10 @@ class _PuntoNeutroAppState extends State<PuntoNeutroApp> with WidgetsBindingObse
     print('🔔 [LIFECYCLE] App lifecycle cambió a: $state');
     
     if (state == AppLifecycleState.hidden) {
-      // En web: hidden se dispara al cambiar pestaña O cerrar
-      // Cerramos sesión inmediatamente porque si es cierre real, no habrá tiempo para timer
-      // Si solo cambió de pestaña y vuelve, startSession() creará nueva sesión
-      print('📴 [LIFECYCLE] App hidden (web), cerrando sesión...');
-      _sessionCloseTimer?.cancel();
-      AnalyticsService().endSession();
+      // En web: hidden se dispara al cambiar de pestaña o minimizar.
+      // Mantener sesión abierta; la cerraremos en beforeunload (cierre/recarga real).
+      print('📴 [LIFECYCLE] App hidden (web), manteniendo sesión abierta.');
+      
     } else if (state == AppLifecycleState.paused) {
       // En móvil: paused = app en background pero aún viva
       // Usar timer para distinguir background temporal vs cierre
@@ -89,9 +91,9 @@ class _PuntoNeutroAppState extends State<PuntoNeutroApp> with WidgetsBindingObse
   }
 }
 
-// ================================================
-// Home (tu VerifiedNewsPage original, sin main())
-// ================================================
+// ========
+//   Home 
+// ========
 class VerifiedNewsPage extends StatefulWidget {
   const VerifiedNewsPage({Key? key}) : super(key: key);
 
