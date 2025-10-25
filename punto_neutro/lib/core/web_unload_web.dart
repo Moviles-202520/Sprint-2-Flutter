@@ -1,23 +1,26 @@
 // Web implementation to detect full tab/window close and run a callback
 import 'dart:html' as html;
 
-html.EventListener? _listener;
+html.EventListener? _pagehideListener;
 
 void registerBeforeUnload(void Function() onUnload) {
-  // Use 'beforeunload' to catch tab close and refresh; not fired on simple tab switch
-  _listener ??= (event) {
+  // Use 'pagehide' instead of 'beforeunload' because pagehide fires
+  // reliably on tab close/navigation and gives us a sync execution window.
+  // This is more reliable than beforeunload which browsers increasingly ignore.
+  _pagehideListener ??= (event) {
     try {
+      print('🔴 [WEB] pagehide event fired, calling onUnload');
       onUnload();
-    } catch (_) {}
-    // Optionally show confirmation dialog; disabled to avoid blocking.
-    // event.preventDefault();
+    } catch (e) {
+      print('Error in pagehide callback: $e');
+    }
   };
-  html.window.addEventListener('beforeunload', _listener!);
+  html.window.addEventListener('pagehide', _pagehideListener!);
 }
 
 void unregisterBeforeUnload() {
-  if (_listener != null) {
-    html.window.removeEventListener('beforeunload', _listener!);
-    _listener = null;
+  if (_pagehideListener != null) {
+    html.window.removeEventListener('pagehide', _pagehideListener!);
+    _pagehideListener = null;
   }
 }

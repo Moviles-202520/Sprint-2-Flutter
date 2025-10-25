@@ -24,6 +24,7 @@ class AnalyticsService {
   // NOTE: we will no longer insert 'started' immediately; we cache the start time
   // and only flush (insert) when the screen is exited without completion.
   final Map<int, DateTime> _pendingCommentStarts = {}; // key: newsId -> started_at
+  final Map<int, int> _pendingCommentUserIds = {}; // key: newsId -> userId
   // (no persistent cache for comment event_ids; we flush and don't keep event_id)
   // Cache para almacenar event_id de engagement_events creados en 'started'
   // For ratings we also cache start times before flushing
@@ -33,6 +34,18 @@ class AnalyticsService {
   String _ratingKey(int newsItemId, int userProfileId) => '$newsItemId:$userProfileId';
 
   Future<void> startSession(int userProfileId) async {
+    // 🔒 Bloquear tracking de sesiones anónimas/no autenticadas
+    try {
+      final currentUser = _supabase.auth.currentUser;
+      if (currentUser == null) {
+        print('⚠️ [SESSION] Usuario no autenticado - no se creará sesión');
+        return;
+      }
+    } catch (e) {
+      print('⚠️ [SESSION] Error verificando autenticación: $e');
+      return;
+    }
+    
     _sessionStart = DateTime.now();
     _sessionId = null;
     // reset seen articles and categories for new session
@@ -57,7 +70,19 @@ class AnalyticsService {
           // Web
           final web = await deviceInfo.webBrowserInfo;
           deviceType = 'web';
-          os = web.userAgent ?? 'web';
+          // Extract browser name from user-agent instead of full string
+          final ua = web.userAgent ?? 'Web';
+          if (ua.contains('Chrome') && !ua.contains('Edg')) {
+            os = 'Chrome';
+          } else if (ua.contains('Edg')) {
+            os = 'Edge';
+          } else if (ua.contains('Firefox')) {
+            os = 'Firefox';
+          } else if (ua.contains('Safari') && !ua.contains('Chrome')) {
+            os = 'Safari';
+          } else {
+            os = 'Web Browser';
+          }
         } catch (_) {
           try {
             // Windows
@@ -194,6 +219,63 @@ class AnalyticsService {
       print('⚠️ [SESSION] No hay sesión activa para cerrar.');
       return;
     }
+    
+    // IMPORTANTE: Flush de eventos pendientes ANTES de cerrar la sesión
+    // para que se guarden aunque el ViewModel no haga dispose (ej: cierre de app en web)
+    print('🔄 [SESSION] Flushing pending events before closing session...');
+    print('📊 [SESSION] Pending ratings: ${_pendingRatingStarts.length}, Pending comments: ${_pendingCommentStarts.length}');
+    
+    // Flush pending rating starts
+    final pendingRatings = Map<String, DateTime>.from(_pendingRatingStarts);
+    for (final entry in pendingRatings.entries) {
+      final parts = entry.key.split(':');
+      if (parts.length == 2) {
+        final newsId = int.tryParse(parts[0]);
+        final userId = int.tryParse(parts[1]);
+        if (newsId != null && userId != null) {
+          try {
+            final createdAt = entry.value.toUtc().toIso8601String();
+            print('💾 [SESSION] Inserting rating started: newsId=$newsId, userId=$userId, session=$_sessionId');
+            await _supabase.from('engagement_events').insert({
+              'user_profile_id': userId,
+              'user_session_id': _sessionId,
+              'news_item_id': newsId,
+              'event_type': 'rating',
+              'action': 'started',
+              'created_at': createdAt,
+            });
+            print('✅ [SESSION] Flushed pending rating started for news $newsId');
+          } catch (e) {
+            print('❌ [SESSION] Error flushing rating: $e');
+          }
+        }
+      }
+    }
+    _pendingRatingStarts.clear();
+    
+    // Flush pending comment starts
+    final pendingComments = Map<int, DateTime>.from(_pendingCommentStarts);
+    for (final entry in pendingComments.entries) {
+      try {
+        final createdAt = entry.value.toUtc().toIso8601String();
+        final userId = _pendingCommentUserIds[entry.key];
+        print('💾 [SESSION] Inserting comment started: newsId=${entry.key}, userId=$userId, session=$_sessionId');
+        await _supabase.from('engagement_events').insert({
+          'user_profile_id': userId,
+          'user_session_id': _sessionId,
+          'news_item_id': entry.key,
+          'event_type': 'comment',
+          'action': 'started',
+          'created_at': createdAt,
+        });
+        print('✅ [SESSION] Flushed pending comment started for news ${entry.key}');
+      } catch (e) {
+        print('❌ [SESSION] Error flushing comment: $e');
+      }
+    }
+    _pendingCommentStarts.clear();
+    _pendingCommentUserIds.clear();
+    
     final endTime = DateTime.now();
     final duration = endTime.difference(_sessionStart!).inSeconds;
     print('📊 [SESSION] Actualizando: end_time=${endTime.toIso8601String()}, duration_seconds=$duration');
@@ -210,6 +292,19 @@ class AnalyticsService {
     _pendingViewedCategories.clear();
   }
 
+  /// Synchronous version of endSession for use in pagehide/beforeunload events.
+  /// Fires endSession() without awaiting (best effort).
+  void endSessionSync() {
+    print('🔴 [SESSION] endSessionSync() llamado (sync)');
+    // Call endSession without awaiting - let it run in background
+    // This is the best we can do in a synchronous context like pagehide
+    endSession().then((_) {
+      print('✅ [SESSION] endSessionSync completed');
+    }).catchError((e) {
+      print('❌ [SESSION] endSessionSync error: $e');
+    });
+  }
+
   Future<void> trackCommentStarted(int newsItemId, [int? userProfileId]) async {
     // Cache the start timestamp and don't send to server yet. The UI/ViewModel
     // will call flushCommentStart when the screen is popped so we either send
@@ -218,6 +313,9 @@ class AnalyticsService {
     final now = DateTime.now();
     _commentStartCache[newsItemId] = now;
     _pendingCommentStarts[newsItemId] = now;
+    if (userProfileId != null) {
+      _pendingCommentUserIds[newsItemId] = userProfileId;
+    }
   }
 
   /// Flush a pending comment 'started' for [newsItemId] by inserting an

@@ -27,9 +27,12 @@ class _PuntoNeutroAppState extends State<PuntoNeutroApp> with WidgetsBindingObse
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Web: cerrar sesión solo cuando se cierra/recarga la pestaña (no por hidden/minimize)
+    // Web: usar pagehide event para capturar cierre inmediato de pestaña
+    // Hacemos endSession de forma síncrona (sin await) para que se ejecute antes del cierre
     registerBeforeUnload(() {
-      AnalyticsService().endSession();
+      print('🔴 [WEB] pagehide callback ejecutado, llamando endSession...');
+      // No usar await porque pagehide no espera async
+      AnalyticsService().endSessionSync();
     });
   }
 
@@ -46,13 +49,19 @@ class _PuntoNeutroAppState extends State<PuntoNeutroApp> with WidgetsBindingObse
     print('🔔 [LIFECYCLE] App lifecycle cambió a: $state');
     
     if (state == AppLifecycleState.hidden) {
-      // En web: hidden se dispara al cambiar de pestaña o minimizar.
-      // Mantener sesión abierta; la cerraremos en beforeunload (cierre/recarga real).
-      print('📴 [LIFECYCLE] App hidden (web), manteniendo sesión abierta.');
+      // En web: hidden se dispara al cambiar pestaña, minimizar O cerrar.
+      // Damos 5 segundos: si vuelve (resumed), cancelamos. Si no, cerramos sesión.
+      // Esto permite que las peticiones HTTP completen antes del cierre del navegador.
+      print('📴 [LIFECYCLE] App hidden (web), iniciando timer de 5s para cerrar sesión...');
+      _sessionCloseTimer?.cancel();
+      _sessionCloseTimer = Timer(const Duration(seconds: 5), () async {
+        print('⏰ [LIFECYCLE] Timer cumplido (5s), cerrando sesión...');
+        await AnalyticsService().endSession();
+      });
       
     } else if (state == AppLifecycleState.paused) {
       // En móvil: paused = app en background pero aún viva
-      // Usar timer para distinguir background temporal vs cierre
+      // Usar timer más largo para distinguir background temporal vs cierre
       print('⏸️ [LIFECYCLE] App pausada (móvil), iniciando timer de 30s...');
       _sessionCloseTimer?.cancel();
       _sessionCloseTimer = Timer(const Duration(seconds: 30), () {
@@ -60,7 +69,7 @@ class _PuntoNeutroAppState extends State<PuntoNeutroApp> with WidgetsBindingObse
         AnalyticsService().endSession();
       });
     } else if (state == AppLifecycleState.resumed) {
-      // Si vuelve antes de 30 segundos (móvil) o abre nueva pestaña (web)
+      // Si vuelve antes del timer, cancelar
       print('▶️ [LIFECYCLE] App resumed, cancelando timer...');
       _sessionCloseTimer?.cancel();
     } else if (state == AppLifecycleState.detached) {

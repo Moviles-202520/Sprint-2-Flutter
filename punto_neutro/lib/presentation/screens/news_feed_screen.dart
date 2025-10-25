@@ -13,6 +13,7 @@ import '../viewmodels/weather_viewmodel.dart';
 import '../../data/services/weather_service.dart';
 import '../../data/repositories/weather_repository.dart';
 import '../../core/location_service.dart';
+import 'analytics_dashboard_screen.dart';
 
 class NewsFeedScreen extends StatefulWidget {
   NewsFeedScreen({Key? key});
@@ -153,6 +154,15 @@ class _NewsFeedScreenState extends State<NewsFeedScreen> {
       ),
       centerTitle: true,
       actions: [
+        IconButton(
+          tooltip: 'Dashboard',
+          icon: const Icon(Icons.analytics_outlined, color: Colors.white),
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (context) => const AnalyticsDashboardScreen()),
+            );
+          },
+        ),
         IconButton(
           icon: const Icon(Icons.more_vert, color: Colors.white),
           onPressed: () {},

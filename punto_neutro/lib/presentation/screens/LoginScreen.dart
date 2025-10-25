@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:punto_neutro/presentation/screens/news_feed_screen.dart';
-import 'package:punto_neutro/presentation/screens/analytics_dashboard_screen.dart';
 import 'package:punto_neutro/presentation/viewmodels/auth_view_model.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -244,24 +243,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   const SizedBox(height: 20), // espacio final
-                  // Botón para navegar al dashboard de analytics
-                  Center(
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.analytics),
-                      label: const Text('Ver Dashboard de Analytics'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                      ),
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => const AnalyticsDashboardScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
                 ],
               ),
             ),
