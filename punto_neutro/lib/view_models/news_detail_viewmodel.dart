@@ -5,6 +5,8 @@ import '../domain/models/rating_item.dart';
 import '../domain/models/comment.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/analytics_service.dart';
+import '../core/observers/rating_observer.dart';
+import '../core/observers/comment_tracker.dart';
 
 class NewsDetailViewModel extends ChangeNotifier {
   // Lleva registro de eventos 'started' disparados por noticia y tipo
@@ -21,6 +23,14 @@ class NewsDetailViewModel extends ChangeNotifier {
   bool _is_loading = true;
   bool _is_submitting_rating = false;
   bool _is_submitting_comment = false;
+  // Realtime observers
+  final RatingObserver _ratingObserver = RatingObserver();
+  final CommentTracker _commentTracker = CommentTracker();
+  int _commentStartedCount = 0;
+  int _commentCompletedCount = 0;
+  List<Map<String, dynamic>> _liveRatings = const [];
+  // Shared controller for comment draft so overlays and inline input stay in sync
+  final TextEditingController commentDraftController = TextEditingController();
 
   NewsDetailViewModel(this._repository, this.news_item_id, this.userProfileId) {
     _loadData();
@@ -31,6 +41,9 @@ class NewsDetailViewModel extends ChangeNotifier {
   bool get is_loading => _is_loading;
   bool get is_submitting_rating => _is_submitting_rating;
   bool get is_submitting_comment => _is_submitting_comment;
+  int get commentStartedCount => _commentStartedCount;
+  int get commentCompletedCount => _commentCompletedCount;
+  List<Map<String, dynamic>> get liveRatings => _liveRatings;
 
   Future<void> _loadData() async {
     try {
@@ -48,13 +61,53 @@ class NewsDetailViewModel extends ChangeNotifier {
       } catch (e) {
         print('⚠️ [DETAIL] Error recording view on detail load: $e');
       }
-      _comments = await _repository.getComments(news_item_id);
+  _comments = await _repository.getComments(news_item_id);
+  _attachRealtime();
     } catch (e) {
       print('Error loading data: $e');
     } finally {
       _is_loading = false;
       notifyListeners();
     }
+  }
+  void _attachRealtime() {
+    final nid = int.tryParse(news_item_id);
+    if (nid == null) return;
+    // Ratings stream (BQ3/BQ4)
+    _ratingObserver.start(newsItemId: nid, onUpdate: (rows) {
+      // Debug: show rating rows count for realtime updates
+      // ignore: avoid_print
+      print('🟢 [OBS] Ratings update for news $nid: ${rows.length} rows');
+      _liveRatings = rows;
+      notifyListeners();
+    });
+    // Comment started/completed (BQ1)
+    _commentTracker.start(
+      newsItemId: nid,
+      onStarted: (rows) {
+        // ignore: avoid_print
+        print('🟡 [OBS] Comment STARTED for news $nid: ${rows.length} events');
+        _commentStartedCount = rows.length;
+        notifyListeners();
+      },
+      onCompleted: (rows) {
+        // ignore: avoid_print
+        print('🔵 [OBS] Comment COMPLETED for news $nid: ${rows.length} rows');
+        _commentCompletedCount = rows.length;
+        // Also update local comments list if a new one appears
+        try {
+          _comments = rows.map((r) => Comment(
+            comment_id: r['comment_id'].toString(),
+            news_item_id: r['news_item_id'].toString(),
+            user_profile_id: r['user_profile_id']?.toString() ?? '',
+            user_name: r['user_name']?.toString() ?? 'User',
+            content: r['content']?.toString() ?? '',
+            timestamp: DateTime.tryParse(r['timestamp'].toString()) ?? DateTime.now(),
+          )).toList();
+        } catch (_) {}
+        notifyListeners();
+      },
+    );
   }
 
   Future<void> submitRating(double score, String? comment_text, String userProfileId) async {
@@ -153,6 +206,13 @@ class NewsDetailViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    // Stop realtime observers
+    _ratingObserver.dispose();
+    _commentTracker.dispose();
+    // Dispose shared controller
+    try {
+      commentDraftController.dispose();
+    } catch (_) {}
     // Si el usuario inició pero NO completó rating, registrar 'started'
     if (_ratingStarted && !_ratingCompleted) {
       AnalyticsService().flushRatingStart(int.tryParse(news_item_id) ?? 0, int.tryParse(userProfileId) ?? 0);
